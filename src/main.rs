@@ -1,14 +1,19 @@
 mod core;
+mod game_state;
+mod phases;
 mod shaders;
 mod token;
 mod token_grid;
 
 use crate::core::Position;
-use crate::token::{swap_tokens, Modifier, Token, TokenType};
+use crate::game_state::GameState;
+use crate::token::{is_valid_swap, swap_tokens, Modifier, Token, TokenType};
+use crate::token_grid::check_for_matches;
 use futures::future::join_all;
 use hashbrown::HashMap;
 use macroquad::miniquad::{BlendFactor, BlendState, BlendValue, Equation};
 use macroquad::prelude::*;
+use phases::Phase;
 
 fn window_conf() -> Conf {
     Conf {
@@ -150,12 +155,20 @@ async fn game() {
     };
 
     let mut tokens = HashMap::new();
-    for i in 0..10 {
-        for j in 0..10 {
-            let type_ = TokenType::ALL[(i + j) % 3];
-            let tex = token_textures[(i + j) % 3].clone();
+    let mut token_texture_map = HashMap::new();
+    for (i, t) in TokenType::ALL.iter().enumerate() {
+        token_texture_map.insert(t.clone(), token_textures[i].clone());
+    }
+
+    let grid_size = 10;
+    for i in 0..grid_size {
+        for j in 0..grid_size {
+            let modulo = if i % 2 == 0 { 2 } else { 3 };
+            let idx = (i + j) % modulo;
+            let type_ = TokenType::ALL[idx];
+            let tex = token_textures[idx].clone();
             let position = Position::new(i as i32, j as i32);
-            let token = Token::new(type_, position.clone(), tex.clone());
+            let token = Token::new(type_, tex.clone());
             tokens.insert(position, token);
         }
     }
@@ -172,9 +185,7 @@ async fn game() {
     camera.zoom = prebaked_zoom;
     camera.target = prebaked_offset;
 
-    let mut hovered_token_pos: Option<Position> = None;
-    let mut selected_token_pos: Option<Position> = None;
-    let mut dirty_token_positions: Vec<Position> = Vec::new();
+    let mut game_state = GameState::new(tokens, grid_size);
 
     loop {
         clear_background(bg_colour);
@@ -224,113 +235,44 @@ async fn game() {
             let mouse = camera.screen_to_world(Vec2::new(mouse_x, mouse_y));
             Position::from_world_vec2(mouse)
         };
-        if is_mouse_button_pressed(MouseButton::Left) {
-            println!("Mouse clicked at {:?} ({:?})", mouse_pos, mouse_position());
+
+        match game_state.phase {
+            Phase::TakingInput => phases::taking_input_phase(mouse_pos.clone(), &mut game_state),
+            Phase::MovedAndAnimating(ref moved_positions) => {
+                // Having to clone this list to make borrow checker happy (i.e. can't borrow the
+                // vec inside the phase variant from the game state and pass it in mutably).
+                // sad times
+                let moved_positions = moved_positions.clone();
+                phases::post_token_swap_phase(&moved_positions, &mut game_state)
+            }
+            Phase::GravityRefill => phases::gravity_refill_phase(&mut game_state, &token_texture_map),
+            Phase::CheckWholeGrid => phases::check_whole_grid_phase(&mut game_state),
+            Phase::Animating(ref next_phase) => {
+                let next_phase = next_phase.clone();
+                phases::animating_phase(&mut game_state, next_phase);
+            }
         }
 
-        let modifier_to_set = match is_mouse_button_pressed(MouseButton::Left) {
-            true => Modifier::Selected,
-            false => Modifier::Hover,
-        };
+        // Draw
+        for (pos, token) in &mut game_state.tokens {
+            token.update();
 
-        if tokens.contains_key(&mouse_pos) {
-            match modifier_to_set {
-                Modifier::Hover => {
-                    //Unset the old token, if there was one
-                    if let Some(token_pos) = hovered_token_pos {
-                        if token_pos != mouse_pos {
-                            if let Some(token) = tokens.get_mut(&token_pos) {
-                                println!("Setting prev old token to None");
-                                token.unset_modifier(Modifier::Hover);
-                            }
-                        }
-                    }
-                    //Set the new token
-                    if let Some(token) = tokens.get_mut(&mouse_pos) {
-                        token.set_modifier(Modifier::Hover);
-                    }
-                    hovered_token_pos = Some(mouse_pos.clone());
-                }
-                Modifier::Selected => {
-                    if let Some(old_token_pos) = selected_token_pos.take() {
-                        // Flip previously selected and new one
-                        let mut old_token = tokens.remove(&old_token_pos).unwrap();
-                        old_token.set_modifier(Modifier::None);
-                        if old_token_pos.is_adjacent(&mouse_pos) {
-                            let mut new_token = tokens.remove(&mouse_pos).unwrap();
-                            swap_tokens(&mut old_token, &mut new_token);
-                            tokens.insert(new_token.position.clone(), old_token);
-                            tokens.insert(old_token_pos.clone(), new_token);
-                            dirty_token_positions.push(old_token_pos);
-                            dirty_token_positions.push(mouse_pos.clone());
-                        } else {
-                            tokens.insert(old_token.position.clone(), old_token);
-                        }
-                    } else {
-                        // Just select the new token
-                        if let Some(token) = tokens.get_mut(&mouse_pos) {
-                            token.set_modifier(modifier_to_set);
-                        }
-
-                        // And unset the hovered position if it's the same
-                        if let Some(pos) = &hovered_token_pos {
-                            if *pos == mouse_pos {
-                                hovered_token_pos = None;
-                            }
-                        }
-                        selected_token_pos = Some(mouse_pos.clone());
-                    }
-                }
-                _ => {}
-            }
-        } else {
-            let mut none = None;
-            let preset_store = match modifier_to_set {
-                Modifier::Selected => &mut selected_token_pos,
-                Modifier::Hover => &mut hovered_token_pos,
-                Modifier::None => &mut none,
+            let is_selected_already = game_state.selected_token_pos.as_ref() == Some(pos);
+            let modifier = if is_selected_already {
+                Modifier::Selected
+            } else if pos == &mouse_pos {
+                Modifier::Hover
+            } else {
+                Modifier::None
             };
-            //Unset the old token, if there was one
-            if let Some(token_pos) = preset_store.take() {
-                if let Some(token) = tokens.get_mut(&token_pos) {
-                    token.set_modifier(Modifier::None);
-                }
-            }
+
+            token.draw(pos, &modifier, mat.clone(), &outline_texture);
         }
 
         if is_mouse_button_pressed(MouseButton::Right) {
-            if let Some(token) = tokens.get_mut(&mouse_pos) {
+            if let Some(token) = game_state.tokens.get_mut(&mouse_pos) {
                 println!("Token: {:?}", token);
             }
-        }
-
-        for token in tokens.values_mut() {
-            token.draw(mat.clone(), &outline_texture);
-        }
-
-        let no_active_animations = {
-            let mut no_active_animations = true;
-            for token in tokens.values_mut() {
-                if token.is_animating() {
-                    no_active_animations = false;
-                    break;
-                }
-            }
-            no_active_animations
-        };
-
-        if !dirty_token_positions.is_empty() && no_active_animations {
-            // We have dirty tokens! let's check for matches.
-            let matched_lines = token_grid::check_for_matches(&tokens, &dirty_token_positions);
-
-            for line in matched_lines {
-                println!("Removing tokens in matched group {:?}", line);
-                for pos in line {
-                    tokens.remove(&pos);
-                }
-            }
-
-            dirty_token_positions.clear();
         }
 
         next_frame().await

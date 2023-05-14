@@ -1,3 +1,5 @@
+use crate::{Phase, Token};
+use hashbrown::HashMap;
 use macroquad::math::Vec2;
 
 const GRID_SIZE: i32 = 32;
@@ -11,6 +13,20 @@ pub struct Position {
 impl Position {
     pub fn new(x: i32, y: i32) -> Position {
         Self { x, y }
+    }
+
+    pub fn get_x(&self) -> i32 {
+        self.x
+    }
+    pub fn get_y(&self) -> i32 {
+        self.y
+    }
+
+    pub fn set_x(&mut self, x: i32) {
+        self.x = x
+    }
+    pub fn set_y(&mut self, y: i32) {
+        self.y = y
     }
 
     pub fn to_world(&self) -> (f32, f32) {
@@ -94,4 +110,26 @@ impl AnimationPosition {
         let t = (elapsed / self.duration).clamp(0., 1.);
         self.start.lerp_to_world(&self.end, t as f32)
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum MatchKind {
+    // i.e. XXX
+    Three,
+    // i.e. XXXX
+    Four,
+    // i.e. XXXXX
+    Five,
+    // i.e. XXX
+    //      X
+    //      X
+    LShape,
+    // i.e. XXX
+    //       X
+    //       X
+    TShape,
+    // i.e. XXXXX
+    //        X
+    //        X
+    SuperTShape,
 }
