@@ -1,11 +1,15 @@
+mod animated_item;
 mod core;
+mod effect_player;
 mod game_state;
 mod phases;
 mod shaders;
 mod token;
 mod token_grid;
 
-use crate::core::Position;
+use crate::animated_item::{AnimatedItem, AnimationScheme};
+use crate::core::{Position, TextureAtlas};
+use crate::effect_player::EffectPlayer;
 use crate::game_state::GameState;
 use crate::token::{is_valid_swap, swap_tokens, Modifier, Token, TokenType};
 use crate::token_grid::check_for_matches;
@@ -36,7 +40,7 @@ async fn main() {
 
 async fn shader_toy() {
     let token_textures: Vec<Texture2D> = {
-        let texture_futures = TokenType::ALL
+        let texture_futures = TokenType::ALL_REGULAR
             .iter()
             .map(|t| load_texture(t.to_sprite_name()))
             .collect::<Vec<_>>();
@@ -138,8 +142,10 @@ fn set_material(materials: &[Option<(&str, Material)>], idx: usize) {
 async fn game() {
     let mat = shaders::glow_material();
     let outline_texture = load_texture("res/outline.png").await.unwrap();
+    let cross_texture = load_texture("res/cross.png").await.unwrap();
+    let mut cross_positions: Vec<Position> = Vec::new();
     let token_textures: Vec<Texture2D> = {
-        let texture_futures = TokenType::ALL
+        let texture_futures = TokenType::ALL_REGULAR
             .iter()
             .map(|t| load_texture(t.to_sprite_name()))
             .collect::<Vec<_>>();
@@ -156,16 +162,22 @@ async fn game() {
 
     let mut tokens = HashMap::new();
     let mut token_texture_map = HashMap::new();
-    for (i, t) in TokenType::ALL.iter().enumerate() {
+    for (i, t) in TokenType::ALL_REGULAR.iter().enumerate() {
         token_texture_map.insert(t.clone(), token_textures[i].clone());
     }
+
+    let mut effect_player = EffectPlayer::new().await;
+    effect_player.audio_effect_volume = 0.1;
 
     let grid_size = 10;
     for i in 0..grid_size {
         for j in 0..grid_size {
-            let modulo = if i % 2 == 0 { 2 } else { 3 };
+            let mut modulo = TokenType::ALL_REGULAR.len();
+            if i % 3 == 0 {
+                modulo -= 1
+            };
             let idx = (i + j) % modulo;
-            let type_ = TokenType::ALL[idx];
+            let type_ = TokenType::ALL_REGULAR[idx];
             let tex = token_textures[idx].clone();
             let position = Position::new(i as i32, j as i32);
             let token = Token::new(type_, tex.clone());
@@ -185,7 +197,7 @@ async fn game() {
     camera.zoom = prebaked_zoom;
     camera.target = prebaked_offset;
 
-    let mut game_state = GameState::new(tokens, grid_size);
+    let mut game_state = GameState::new(tokens, grid_size, effect_player);
 
     loop {
         clear_background(bg_colour);
@@ -245,13 +257,20 @@ async fn game() {
                 let moved_positions = moved_positions.clone();
                 phases::post_token_swap_phase(&moved_positions, &mut game_state)
             }
-            Phase::GravityRefill => phases::gravity_refill_phase(&mut game_state, &token_texture_map),
-            Phase::CheckWholeGrid => phases::check_whole_grid_phase(&mut game_state),
+            Phase::GravityRefill => {
+                phases::gravity_refill_phase(&mut game_state, &token_texture_map)
+            }
+            Phase::CheckWholeGrid => {
+                phases::check_whole_grid_phase(&mut game_state, &mut cross_positions)
+            }
             Phase::Animating(ref next_phase) => {
                 let next_phase = next_phase.clone();
                 phases::animating_phase(&mut game_state, next_phase);
             }
         }
+
+        game_state.effect_player.update();
+        game_state.effect_player.draw();
 
         // Draw
         for (pos, token) in &mut game_state.tokens {
@@ -267,6 +286,19 @@ async fn game() {
             };
 
             token.draw(pos, &modifier, mat.clone(), &outline_texture);
+        }
+
+        draw_text(
+            &format!("Phase: {:?}", game_state.phase),
+            10.0,
+            10.0,
+            10.0,
+            WHITE,
+        );
+
+        for cross_pos in cross_positions.iter() {
+            let (x, y) = cross_pos.to_world();
+            draw_texture(cross_texture, x, y, WHITE);
         }
 
         if is_mouse_button_pressed(MouseButton::Right) {

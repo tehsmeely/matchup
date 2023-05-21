@@ -1,3 +1,5 @@
+use crate::animated_item::AnimatedItem;
+use crate::effect_player::EffectKind;
 use crate::game_state::GameState;
 use crate::token::{Token, TokenType};
 use crate::{check_for_matches, game, is_valid_swap, swap_tokens, Position};
@@ -5,6 +7,8 @@ use hashbrown::HashMap;
 use macroquad::input::{is_mouse_button_pressed, mouse_position, MouseButton};
 use macroquad::texture::Texture2D;
 use rand::random;
+use std::collections::vec_deque::VecDeque;
+use std::hash::Hash;
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
@@ -86,6 +90,9 @@ pub fn post_token_swap_phase(moved_positions: &Vec<Position>, game_state: &mut G
         println!("Removing tokens in matched group {:?}", line);
         for pos in line {
             game_state.tokens.remove(&pos);
+            game_state
+                .effect_player
+                .spawn_effect(pos, EffectKind::Explosion);
         }
     }
 
@@ -96,8 +103,10 @@ pub fn gravity_refill_phase(
     game_state: &mut GameState,
     token_textures: &HashMap<TokenType, Texture2D>,
 ) {
+    println!("Gravity Refill Phase");
     //iterate from bottom to top, if there is a gap, move the token above it down to replace it
-    let mut gaps_by_x = HashMap::new();
+    let mut gaps_by_x: HashMap<i32, usize> = HashMap::new();
+    /*
     for y in (0..game_state.grid_size).rev() {
         for x in 0..game_state.grid_size {
             let pos = Position::new(x as i32, y as i32);
@@ -121,10 +130,37 @@ pub fn gravity_refill_phase(
             }
         }
     }
+    */
+
+    for x in 0i32..(game_state.grid_size as i32) {
+        let mut known_gaps = VecDeque::new();
+        for y in (0i32..game_state.grid_size as i32).rev() {
+            let pos = Position::new(x as i32, y);
+            if !game_state.tokens.contains_key(&pos) {
+                known_gaps.push_back(pos);
+            } else {
+                //There is a token here, if we have any known gaps, move this token down to fill it
+                // and don't remember to treat this as a gap to fill now it's moved
+                if let Some(gap_pos) = known_gaps.pop_front() {
+                    //move this token down,
+                    println!("Found a gap at {:?} to fill with {:?}", gap_pos, pos);
+                    if let Some(mut token) = game_state.tokens.remove(&pos) {
+                        let dy = gap_pos.y - y;
+                        let animation_time = dy as f64 * crate::token::ANIMATION_TIME_PER_TILE;
+                        token.animate_move_to(pos.clone(), gap_pos.clone(), animation_time);
+                        game_state.tokens.insert(gap_pos.clone(), token);
+                    }
+                    known_gaps.push_back(pos);
+                }
+            }
+        }
+        // record unfilled gaps, we'll need to spawn that many tokens
+        gaps_by_x.insert(x, known_gaps.len());
+    }
 
     // We we moved tokens down, we need to spawn new ones above
     for (x, gap_count) in gaps_by_x.iter() {
-        let gap_count = *gap_count;
+        let gap_count = *gap_count as i32;
         if gap_count > 0 {
             println!("Found {} gaps at x={}", gap_count, x);
             let r = 1..=gap_count;
@@ -155,7 +191,7 @@ pub fn gravity_refill_phase(
     game_state.phase = Phase::Animating(Rc::new(Phase::CheckWholeGrid));
 }
 
-pub fn check_whole_grid_phase(game_state: &mut GameState) {
+pub fn check_whole_grid_phase(game_state: &mut GameState, _cross_positions: &mut Vec<Position>) {
     let lines_with_match_kind = crate::token_grid::check_entire_grid(&game_state.tokens);
 
     if lines_with_match_kind.is_empty() {
@@ -165,6 +201,9 @@ pub fn check_whole_grid_phase(game_state: &mut GameState) {
             println!("Removing tokens in matched group {:?}", line);
             for pos in line {
                 game_state.tokens.remove(&pos);
+                game_state
+                    .effect_player
+                    .spawn_effect(pos, EffectKind::Explosion);
             }
         }
         game_state.phase = Phase::GravityRefill;

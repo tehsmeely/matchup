@@ -7,13 +7,16 @@ use macroquad::math::vec4;
 use macroquad::prelude::{draw_texture, gl_use_default_material, gl_use_material, Texture2D};
 use rand::distributions::{Distribution, Standard};
 
-pub const ANIMATION_TIME_PER_TILE: f64 = 02.2;
+pub const ANIMATION_TIME_PER_TILE: f64 = 0.2;
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub enum TokenType {
     Red,
     Green,
     Blue,
+    Yellow,
+    Purple,
+    Bomb,
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -91,36 +94,34 @@ impl Token {
 }
 
 impl TokenType {
-    pub const ALL: [TokenType; 3] = [Self::Red, Self::Green, Self::Blue];
+    pub const ALL_REGULAR: [TokenType; 5] = [
+        Self::Red,
+        Self::Green,
+        Self::Blue,
+        Self::Yellow,
+        Self::Purple,
+    ];
     pub fn to_sprite_name(&self) -> &str {
         match self {
             Self::Red => "res/red_token.png",
             Self::Green => "res/green_token.png",
             Self::Blue => "res/blue_token.png",
+            Self::Yellow => "res/yellow_token.png",
+            Self::Purple => "res/purple_token.png",
+            Self::Bomb => "res/bomb.png",
         }
     }
 }
 
 impl Distribution<TokenType> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> TokenType {
-        match rng.gen_range(0..3) {
+        match rng.gen_range(0..=4) {
             0 => TokenType::Red,
             1 => TokenType::Green,
             2 => TokenType::Blue,
+            3 => TokenType::Yellow,
+            4 => TokenType::Purple,
             _ => unreachable!(),
-        }
-    }
-}
-
-impl Modifier {
-    fn valid_transition_to(&self, other: Modifier) -> bool {
-        match (self, other) {
-            (Self::None, Self::Hover)
-            | (Self::Hover, Self::None)
-            | (Self::Hover, Self::Selected)
-            | (Self::Selected, Self::None) => true,
-            (Self::Selected, Self::Hover) => false,
-            _ => false,
         }
     }
 }

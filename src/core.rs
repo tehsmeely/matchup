@@ -1,6 +1,7 @@
 use crate::{Phase, Token};
 use hashbrown::HashMap;
-use macroquad::math::Vec2;
+use macroquad::math::{Rect, Vec2};
+use macroquad::texture::{load_image, Texture2D};
 
 const GRID_SIZE: i32 = 32;
 
@@ -132,4 +133,40 @@ pub enum MatchKind {
     //        X
     //        X
     SuperTShape,
+}
+
+#[derive(Clone, Debug)]
+pub struct TextureAtlas {
+    textures: Vec<Texture2D>,
+    pub texture_size: (f32, f32),
+}
+
+impl TextureAtlas {
+    pub async fn new(filename: &str, texture_size: (f32, f32), rows: i32, cols: i32) -> Self {
+        let rect = Rect::new(0f32, 0f32, texture_size.0, texture_size.1);
+        let image = load_image(filename).await.unwrap();
+        let mut textures = Vec::new();
+        for col in 0..cols {
+            for row in 0..rows {
+                let rect = Rect::new(
+                    rect.x + (col as f32 * rect.w),
+                    rect.y + (row as f32 * rect.h),
+                    rect.w,
+                    rect.h,
+                );
+                let texture = Texture2D::from_image(&image.sub_image(rect));
+                textures.push(texture);
+            }
+        }
+        Self {
+            textures,
+            texture_size,
+        }
+    }
+    pub fn get(&self, index: usize) -> Texture2D {
+        self.textures[index]
+    }
+    pub fn size(&self) -> usize {
+        self.textures.len()
+    }
 }

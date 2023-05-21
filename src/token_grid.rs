@@ -1,8 +1,8 @@
-use std::ops::Range;
-use crate::{Position, Token};
 use crate::core::MatchKind;
-use hashbrown::{HashMap, HashSet};
 use crate::token::TokenType;
+use crate::{Position, Token};
+use hashbrown::{HashMap, HashSet};
+use std::ops::Range;
 
 pub fn check_for_matches(
     tokens: &HashMap<Position, Token>,
@@ -83,7 +83,6 @@ pub fn check_for_matches(
     matched_lines
 }
 
-
 fn check_contiguous_area(
     tokens: &HashMap<Position, Token>,
     start_position: &Position,
@@ -118,11 +117,19 @@ struct ByDirection {
 
 impl ByDirection {
     fn to_range(&self) -> Range<i32> {
-      Range { start: self.bounds.0, end: self.bounds.1 }
+        Range {
+            start: self.bounds.0,
+            end: self.bounds.1,
+        }
     }
 }
 
-fn find_lines(matched_lines: &mut Vec<Vec<Position>>, check_by_direction: &ByDirection, step_by_direction: &ByDirection, area: &[Position]) {
+fn find_lines(
+    matched_lines: &mut Vec<Vec<Position>>,
+    check_by_direction: &ByDirection,
+    step_by_direction: &ByDirection,
+    area: &[Position],
+) {
     //We step in the "step_by_direction" direction, and check in the "check_by_direction" direction, so we can flip them in future
     // One can imagine y is "step" and x is "check". we go thought y=0 ... y=10, and for each y we go through x=0 ... x=10
     // only for each x do we check for continuous lines, breaking on gaps or when we reach the end of the range for x
@@ -147,18 +154,22 @@ fn find_lines(matched_lines: &mut Vec<Vec<Position>>, check_by_direction: &ByDir
     }
 }
 
-
 // TODO: Consider passing around &[Position] instead of Vec<Position> to avoid copying
-fn lines_intersect(line1: Vec<Position>, line2: Vec<Position>) {
+fn lines_intersect(line1: Vec<Position>, line2: Vec<Position>) {}
 
-}
-
-fn make_by_direction(area: &[Position], get: fn(&Position) -> i32, set: fn(&mut Position, i32)) -> ByDirection {
+fn make_by_direction(
+    area: &[Position],
+    get: fn(&Position) -> i32,
+    set: fn(&mut Position, i32),
+) -> ByDirection {
     let min = area.iter().map(get).min().unwrap();
     let max = area.iter().map(get).max().unwrap();
-    ByDirection { bounds: (min, max+1), get, set }
+    ByDirection {
+        bounds: (min, max + 1),
+        get,
+        set,
+    }
 }
-
 
 fn check_contiguous_area_for_linearity(area: &[Position]) -> Vec<(Vec<Position>, MatchKind)> {
     // check for lines in x and y
@@ -186,16 +197,18 @@ fn check_contiguous_area_for_linearity(area: &[Position]) -> Vec<(Vec<Position>,
     let by_direction_y = make_by_direction(area, Position::get_y, Position::set_y);
 
     let mut matched_lines = Vec::new();
-    find_lines(&mut matched_lines , &by_direction_x, &by_direction_y, area);
+    find_lines(&mut matched_lines, &by_direction_x, &by_direction_y, area);
     find_lines(&mut matched_lines, &by_direction_y, &by_direction_x, area);
-
 
     println!("Input: {:?}", area);
     println!("Matched lines: {:?}", matched_lines);
     println!("----");
 
     // TODO: Check for intersections, we are lying here
-    matched_lines.into_iter().map(|line| (line, MatchKind::Three)).collect()
+    matched_lines
+        .into_iter()
+        .map(|line| (line, MatchKind::Three))
+        .collect()
 }
 
 pub fn check_entire_grid(tokens: &HashMap<Position, Token>) -> Vec<(Vec<Position>, MatchKind)> {
@@ -212,7 +225,6 @@ pub fn check_entire_grid(tokens: &HashMap<Position, Token>) -> Vec<(Vec<Position
 
     let mut lines_with_match_kind = Vec::new();
     for area in contiguous_areas {
-        println!("Contiguous area: {:?}", area);
         if area.len() >= 3 {
             // Don't bother checking unless it's an area of 3 or more, we can't get a three-in-a-row with less than three!
             lines_with_match_kind.extend(check_contiguous_area_for_linearity(&area));
@@ -222,13 +234,17 @@ pub fn check_entire_grid(tokens: &HashMap<Position, Token>) -> Vec<(Vec<Position
 }
 
 mod test {
-    use crate::core::Position;
     use super::*;
-
+    use crate::core::Position;
 
     #[test]
     fn test_areas() {
-        let input =  vec![Position { x: 6, y: 4 }, Position { x: 7, y: 4 }, Position { x: 8, y: 4 }, Position { x: 9, y: 4 }];
+        let input = vec![
+            Position { x: 6, y: 4 },
+            Position { x: 7, y: 4 },
+            Position { x: 8, y: 4 },
+            Position { x: 9, y: 4 },
+        ];
 
         let by_direction_x = make_by_direction(&input, Position::get_x, Position::set_x);
         assert_eq!(by_direction_x.to_range(), 6..10);
@@ -237,7 +253,15 @@ mod test {
         let mut matched_lines = Vec::new();
         find_lines(&mut matched_lines, &by_direction_y, &by_direction_x, &input);
         assert_eq!(matched_lines, Vec::<Vec<Position>>::new());
-        find_lines(&mut matched_lines , &by_direction_x, &by_direction_y, &input);
-        assert_eq!(matched_lines, vec![vec![Position { x: 6, y: 4 }, Position { x: 7, y: 4 }, Position { x: 8, y: 4 }, Position { x: 9, y: 4 }]]);
+        find_lines(&mut matched_lines, &by_direction_x, &by_direction_y, &input);
+        assert_eq!(
+            matched_lines,
+            vec![vec![
+                Position { x: 6, y: 4 },
+                Position { x: 7, y: 4 },
+                Position { x: 8, y: 4 },
+                Position { x: 9, y: 4 }
+            ]]
+        );
     }
 }
